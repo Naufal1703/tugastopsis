@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <title>TOPSIS Sederhana</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f3f3f3; padding:20px; }
+    .box { background:white; padding:20px; border-radius:10px; max-width:900px; margin:auto; }
+    input, select { padding:5px; margin:3px; }
+    table { width:100%; border-collapse:collapse; margin-top:15px; }
+    th, td { border:1px solid #bbb; padding:6px; text-align:center; }
+    th { background:#eaeaea; }
+    button { padding:8px 15px; margin:5px; cursor:pointer; }
+  </style>
+</head>
+<body>
+<div class="box">
+  <h2>TOPSIS Calculator Sederhana (Manual Input)</h2>
+  <p>Tambah kriteria dan alternatif, isi nilainya, lalu klik hitung.</p>
+
+  <h3>Kriteria</h3>
+  <div id="criteriaList"></div>
+  <button onclick="addCriterion()">Tambah Kriteria</button>
+
+  <h3>Alternatif</h3>
+  <div id="altList"></div>
+  <button onclick="addAlternative()">Tambah Alternatif</button>
+
+  <br><br>
+  <button onclick="hitungTOPSIS()" style="background:green;color:white;">Hitung TOPSIS</button>
+
+  <div id="hasil"></div>
+</div>
+
+<script>
+  let criteria = [];
+  let alternatives = [];
+
+  function addCriterion() {
+    const id = criteria.length;
+    criteria.push({ name: `C${id+1}`, weight: 1, impact: "benefit" });
+    renderCriteria();
+    renderAlternatives();
+  }
+
+  function addAlternative() {
+    const id = alternatives.length;
+    alternatives.push({ name: `A${id+1}`, values: [] });
+    renderAlternatives();
+  }
+
+  function renderCriteria() {
+    const box = document.getElementById("criteriaList");
+    box.innerHTML = "";
+
+    criteria.forEach((c, i) => {
+      box.innerHTML += `
+        <div>
+          <input value="${c.name}" onchange="criteria[${i}].name=this.value">
+          <input type='number' value='${c.weight}' style='width:60px' onchange="criteria[${i}].weight=parseFloat(this.value)">
+          <select onchange="criteria[${i}].impact=this.value">
+            <option value='benefit' ${c.impact==='benefit'?'selected':''}>Benefit</option>
+            <option value='cost' ${c.impact==='cost'?'selected':''}>Cost</option>
+          </select>
+          <button onclick="removeCriterion(${i})">Hapus</button>
+        </div>
+      `;
+    });
+  }
+
+  function renderAlternatives() {
+    const box = document.getElementById("altList");
+    box.innerHTML = "";
+
+    alternatives.forEach((a, ai) => {
+      box.innerHTML += `<div style='margin-bottom:5px;'>
+        <input value="${a.name}" onchange="alternatives[${ai}].name=this.value">
+      </div>`;
+
+      criteria.forEach((c, ci) => {
+        if (alternatives[ai].values[ci] === undefined) alternatives[ai].values[ci] = 0;
+      });
+
+      criteria.forEach((c, ci) => {
+        box.innerHTML += `
+          <input type='number' style='width:70px' value="${a.values[ci]}" 
+                 onchange="alternatives[${ai}].values[${ci}] = parseFloat(this.value)">
+        `;
+      });
+      box.innerHTML += `<button onclick="removeAlternative(${ai})">Hapus</button><br><br>`;
+    });
+  }
+
+  function removeCriterion(i) {
+    criteria.splice(i,1);
+    alternatives.forEach(a => a.values.splice(i,1));
+    renderCriteria();
+    renderAlternatives();
+  }
+
+  function removeAlternative(i) {
+    alternatives.splice(i,1);
+    renderAlternatives();
+  }
+
+  function hitungTOPSIS() {
+    if (criteria.length === 0 || alternatives.length === 0) {
+      alert("Tambahkan kriteria & alternatif dulu!");
+      return;
+    }
+
+    // Matrix
+    const M = alternatives.map(a => a.values);
+    const weights = criteria.map(c => c.weight);
+    const impacts = criteria.map(c => c.impact);
+
+    // 1. Normalisasi
+    const norm = JSON.parse(JSON.stringify(M));
+    for (let j=0; j<criteria.length; j++) {
+      let sum = 0;
+      for (let i=0; i<alternatives.length; i++) sum += M[i][j]**2;
+      const d = Math.sqrt(sum);
+      for (let i=0; i<alternatives.length; i++) norm[i][j] = M[i][j] / d;
+    }
+
+    // 2. Normalisasi terbobot
+    const wNorm = JSON.parse(JSON.stringify(norm));
+    for (let i=0; i<alternatives.length; i++)
+      for (let j=0; j<criteria.length; j++)
+        wNorm[i][j] *= weights[j];
+
+    // 3. Ideal + dan -
+    let idealPlus = [], idealMin = [];
+    for (let j=0; j<criteria.length; j++) {
+      const col = wNorm.map(r => r[j]);
+      if (impacts[j] === "benefit") {
+        idealPlus[j] = Math.max(...col);
+        idealMin[j] = Math.min(...col);
+      } else {
+        idealPlus[j] = Math.min(...col);
+        idealMin[j] = Math.max(...col);
+      }
+    }
+
+    // 4. Jarak D+ dan D-
+    let dPlus = [], dMin = [];
+    for (let i=0; i<alternatives.length; i++) {
+      dPlus[i] = Math.sqrt(criteria
+        .map((_,j)=> (wNorm[i][j]-idealPlus[j])**2).reduce((a,b)=>a+b));
+      dMin[i]  = Math.sqrt(criteria
+        .map((_,j)=> (wNorm[i][j]-idealMin[j])**2).reduce((a,b)=>a+b));
+    }
+
+    // 5. Nilai Preferensi (CC)
+    const cc = dMin.map((v,i)=> v/(v+dPlus[i]));
+
+    // Ranking
+    const ranking = alternatives.map((a,i)=>({
+      nama: a.name,
+      cc: cc[i]
+    })).sort((a,b)=> b.cc - a.cc);
+
+    // Tampilkan hasil
+    let html = `<h3>Hasil Perhitungan</h3><table>
+      <tr><th>Alternatif</th><th>Nilai CC</th><th>Ranking</th></tr>`;
+    ranking.forEach((r,i)=>{
+      html += `<tr><td>${r.nama}</td><td>${r.cc.toFixed(4)}</td><td>${i+1}</td></tr>`;
+    });
+    html += `</table>`;
+
+    document.getElementById("hasil").innerHTML = html;
+  }
+</script>
+</body>
+</html>
